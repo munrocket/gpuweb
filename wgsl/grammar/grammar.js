@@ -103,7 +103,7 @@ module.exports = grammar({
             $.bitwise_expression
         ),
         struct_decl: $ => seq($.struct, $.ident, $.struct_body_decl),
-        struct_body_decl: $ => seq($.brace_left, optional(repeat1(seq($.struct_member, $.comma))), $.struct_member, optional($.comma), $.brace_right),
+        struct_body_decl: $ => seq($.brace_left, $.struct_member, optional(repeat1(seq($.comma, $.struct_member))), optional($.comma), $.brace_right),
         struct_member: $ => seq(optional(repeat1($.attribute)), $.member_ident, $.colon, $.type_decl),
         texture_and_sampler_types: $ => choice(
             $.sampler_type,
@@ -175,16 +175,16 @@ module.exports = grammar({
         variable_statement: $ => choice(
             $.variable_decl,
             seq($.variable_decl, $.equal, $.expression),
-            seq($.let, choice($.ident, $.variable_ident_decl), $.equal, $.expression),
-            seq($.const, choice($.ident, $.variable_ident_decl), $.equal, $.expression)
+            seq($.let, $.optionally_typed_ident, $.equal, $.expression),
+            seq($.const, $.optionally_typed_ident, $.equal, $.expression)
         ),
-        variable_decl: $ => seq($.var, optional($.variable_qualifier), choice($.ident, $.variable_ident_decl)),
-        variable_ident_decl: $ => seq($.ident, $.colon, $.type_decl),
+        variable_decl: $ => seq($.var, optional($.variable_qualifier), $.optionally_typed_ident),
+        optionally_typed_ident: $ => seq($.ident, optional(seq($.colon, $.type_decl))),
         variable_qualifier: $ => seq($.less_than, $.address_space, optional(seq($.comma, $.access_mode)), $.greater_than),
         global_variable_decl: $ => seq(optional(repeat1($.attribute)), $.variable_decl, optional(seq($.equal, $.expression))),
         global_constant_decl: $ => choice(
-            seq($.const, choice($.ident, $.variable_ident_decl), $.equal, $.expression),
-            seq(optional(repeat1($.attribute)), $.override, choice($.ident, $.variable_ident_decl), optional(seq($.equal, $.expression)))
+            seq($.const, $.optionally_typed_ident, $.equal, $.expression),
+            seq(optional(repeat1($.attribute)), $.override, $.optionally_typed_ident, optional(seq($.equal, $.expression)))
         ),
         primary_expression: $ => choice(
             $.ident,
@@ -201,7 +201,7 @@ module.exports = grammar({
             $.array
         ),
         paren_expression: $ => seq($.paren_left, $.expression, $.paren_right),
-        argument_expression_list: $ => seq($.paren_left, optional(seq(optional(repeat1(seq($.expression, $.comma))), $.expression, optional($.comma))), $.paren_right),
+        argument_expression_list: $ => seq($.paren_left, optional(seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma))), $.paren_right),
         postfix_expression: $ => choice(
             seq($.bracket_left, $.expression, $.bracket_right, optional($.postfix_expression)),
             seq($.period, $.member_ident, optional($.postfix_expression)),
@@ -223,14 +223,20 @@ module.exports = grammar({
         ),
         multiplicative_expression: $ => choice(
             $.unary_expression,
-            seq($.multiplicative_expression, $.star, $.unary_expression),
-            seq($.multiplicative_expression, $.forward_slash, $.unary_expression),
-            seq($.multiplicative_expression, $.modulo, $.unary_expression)
+            seq($.multiplicative_expression, $.multiplicative_operator, $.unary_expression)
+        ),
+        multiplicative_operator: $ => choice(
+            $.star,
+            $.forward_slash,
+            $.modulo
         ),
         additive_expression: $ => choice(
             $.multiplicative_expression,
-            seq($.additive_expression, $.plus, $.multiplicative_expression),
-            seq($.additive_expression, $.minus, $.multiplicative_expression)
+            seq($.additive_expression, $.additive_operator, $.multiplicative_expression)
+        ),
+        additive_operator: $ => choice(
+            $.plus,
+            $.minus
         ),
         shift_expression: $ => choice(
             $.additive_expression,
@@ -302,26 +308,26 @@ module.exports = grammar({
         else_clause: $ => seq($.else, $.compound_statement),
         switch_statement: $ => seq($.switch, $.expression, $.brace_left, repeat1($.switch_body), $.brace_right),
         switch_body: $ => choice(
-            seq($.case, $.case_selectors, optional($.colon), $.case_compound_statement),
-            seq($.default, optional($.colon), $.case_compound_statement)
+            $.case_clause,
+            $.default_alone_clause
         ),
-        case_selectors: $ => seq($.expression, optional(repeat1(seq($.comma, $.expression))), optional($.comma)),
-        case_compound_statement: $ => seq($.brace_left, optional(repeat1($.statement)), optional($.fallthrough_statement), $.brace_right),
-        fallthrough_statement: $ => seq($.fallthrough, $.semicolon),
+        case_clause: $ => seq($.case, $.case_selectors, optional($.colon), $.compound_statement),
+        default_alone_clause: $ => seq($.default, optional($.colon), $.compound_statement),
+        case_selectors: $ => seq($.case_selector, optional(repeat1(seq($.comma, $.case_selector))), optional($.comma)),
+        case_selector: $ => choice(
+            $.default,
+            $.expression
+        ),
         loop_statement: $ => seq($.loop, $.brace_left, optional(repeat1($.statement)), optional($.continuing_statement), $.brace_right),
         for_statement: $ => seq($.for, $.paren_left, $.for_header, $.paren_right, $.compound_statement),
         for_header: $ => seq(optional($.for_init), $.semicolon, optional($.expression), $.semicolon, optional($.for_update)),
         for_init: $ => choice(
             $.variable_statement,
-            $.increment_statement,
-            $.decrement_statement,
-            $.assignment_statement,
+            $.variable_updating_statement,
             $.func_call_statement
         ),
         for_update: $ => choice(
-            $.increment_statement,
-            $.decrement_statement,
-            $.assignment_statement,
+            $.variable_updating_statement,
             $.func_call_statement
         ),
         while_statement: $ => seq($.while, $.expression, $.compound_statement),
@@ -346,16 +352,19 @@ module.exports = grammar({
             seq($.break_statement, $.semicolon),
             seq($.continue_statement, $.semicolon),
             seq($.discard, $.semicolon),
-            seq($.assignment_statement, $.semicolon),
+            seq($.variable_updating_statement, $.semicolon),
             $.compound_statement,
-            seq($.increment_statement, $.semicolon),
-            seq($.decrement_statement, $.semicolon),
             seq($.static_assert_statement, $.semicolon)
+        ),
+        variable_updating_statement: $ => choice(
+            $.assignment_statement,
+            $.increment_statement,
+            $.decrement_statement
         ),
         function_decl: $ => seq(optional(repeat1($.attribute)), $.function_header, $.compound_statement),
         function_header: $ => seq($.fn, $.ident, $.paren_left, optional($.param_list), $.paren_right, optional(seq($.arrow, optional(repeat1($.attribute)), $.type_decl))),
-        param_list: $ => seq(optional(repeat1(seq($.param, $.comma))), $.param, optional($.comma)),
-        param: $ => seq(optional(repeat1($.attribute)), $.variable_ident_decl),
+        param_list: $ => seq($.param, optional(repeat1(seq($.comma, $.param))), optional($.comma)),
+        param: $ => seq(optional(repeat1($.attribute)), $.ident, $.colon, $.type_decl),
         enable_directive: $ => seq($.enable, $.extension_name, $.semicolon),
         address_space: $ => choice(
             $.function,
@@ -413,7 +422,6 @@ module.exports = grammar({
         discard: $ => token('discard'),
         else: $ => token('else'),
         enable: $ => token('enable'),
-        fallthrough: $ => token('fallthrough'),
         false: $ => token('false'),
         fn: $ => token('fn'),
         for: $ => token('for'),
@@ -589,6 +597,7 @@ module.exports = grammar({
             token('extends'),
             token('extern'),
             token('external'),
+            token('fallthrough'),
             token('filter'),
             token('final'),
             token('finally'),
